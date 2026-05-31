@@ -1,0 +1,27 @@
+{
+  "name": "property-intel",
+  "version": "1.0.0",
+  "description": "Paste a Redfin/Zillow URL or address -> pull authoritative property data (PIN/parcel, township, lot, sqft, beds/baths, taxes, owner) for brokerage use. Joins listing data with the county assessor record.",
+  "type": "module",
+  "bin": {
+    "property-intel": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pull": "tsx src/cli.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "setup:browser": "playwright install chromium"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "playwright": "^1.60.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

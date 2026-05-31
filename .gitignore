@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.chromium-profile/
+.DS_Store
+
+# Generated property pulls — keep the repo clean of harvested data.
+output/*.json
+output/*.csv
+output/*.pdf
+!output/.gitkeep
+
+# Local HTTP cache
+.cache/
+
+.tmp/
