@@ -31,6 +31,57 @@ const CLASS_LABELS: Record<string, string> = {
   E: "Exempt",
 };
 
+// Run an arbitrary where-clause against the DuPage parcel layer and return raw
+// attribute rows. Used by both the single lookup and the city batch.
+export async function queryDuPage(
+  where: string,
+  opts: {
+    limit?: number;
+    orderBy?: string;
+    offset?: number;
+    fields?: string;
+  } = {},
+): Promise<Record<string, unknown>[]> {
+  const { limit = 10, orderBy, offset, fields = "*" } = opts;
+  const url =
+    `${LAYER}?where=${encodeURIComponent(where)}` +
+    `&outFields=${encodeURIComponent(fields)}&returnGeometry=false&resultRecordCount=${limit}` +
+    (offset ? `&resultOffset=${offset}` : "") +
+    (orderBy ? `&orderByFields=${encodeURIComponent(orderBy)}` : "") +
+    `&f=json`;
+  const data = await fetchJson<ArcGisResp>(url, { cache: true });
+  if (data.error) throw new Error(`DuPage ArcGIS: ${data.error.message}`);
+  return (data.features ?? []).map((f) => f.attributes);
+}
+
+// Page through every matching row using KEYSET pagination on PIN (PIN > last).
+// resultOffset paging on this layer overlaps because PINs aren't unique
+// (multi-part parcels), so we page by the PIN cursor and dedupe instead.
+export async function queryDuPageAll(
+  where: string,
+  fields: string,
+  maxRows = 30_000,
+): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  let lastPin = "";
+  for (let i = 0; i < 60 && out.length < maxRows; i++) {
+    const w = lastPin ? `(${where}) AND PIN > '${lastPin}'` : where;
+    const page = await queryDuPage(w, { limit: 1000, orderBy: "PIN", fields });
+    if (!page.length) break;
+    for (const a of page) {
+      const pin = String(a["PIN"] ?? "").trim();
+      if (pin && pin > lastPin) lastPin = pin;
+      if (pin && !seen.has(pin)) {
+        seen.add(pin);
+        out.push(a);
+      }
+    }
+    if (page.length < 1000) break;
+  }
+  return out;
+}
+
 export async function lookupDuPage(
   addr: ParsedAddress,
 ): Promise<ParcelInfo | null> {
@@ -44,21 +95,17 @@ export async function lookupDuPage(
     `PROPSTNAME LIKE '${sqlEscape(namePrefix)}%'` +
     (addr.city ? ` AND PROPCITY LIKE '${sqlEscape(addr.city)}%'` : "");
 
-  const url =
-    `${LAYER}?where=${encodeURIComponent(where)}` +
-    `&outFields=*&returnGeometry=false&resultRecordCount=10&f=json`;
-
-  const data = await fetchJson<ArcGisResp>(url, { cache: true });
-  if (data.error) throw new Error(`DuPage ArcGIS: ${data.error.message}`);
-
-  const feats = data.features ?? [];
+  const feats = await queryDuPage(where, { limit: 10 });
   if (!feats.length) return null;
 
-  const exact = feats.find((f) =>
-    clean(f.attributes["PROPSTNAME"]).startsWith(`${addr.number} `),
+  const exact = feats.find((a) =>
+    clean(a["PROPSTNAME"]).startsWith(`${addr.number} `),
   );
-  const a = (exact ?? feats[0])!.attributes;
+  return mapDuPageFeature(exact ?? feats[0]!);
+}
 
+// Map a raw DuPage parcel attribute row to a ParcelInfo.
+export function mapDuPageFeature(a: Record<string, unknown>): ParcelInfo {
   const legal = Array.from({ length: 9 }, (_, i) =>
     clean(a[`LEGALDES${i + 1}`]),
   )

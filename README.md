@@ -33,7 +33,22 @@ npm run pull -- "5046 S Greenwood Ave, Chicago, IL 60615"
 npm run pull -- "https://www.redfin.com/IL/Roselle/620-Rodenburg-Rd-60172/home/16895259"
 ```
 
-Outputs land in `output/<address>.{json,csv,pdf}`.
+### Batch a whole DuPage city
+
+```bash
+# even-sampled spread across the city
+npm run pull -- batch "Elmhurst" --count 100
+
+# EVERY residential parcel in the city (e.g. all ~14.7k in Elmhurst)
+npm run pull -- batch "Elmhurst" --all
+```
+
+Batch scans the full city via keyset pagination, derives township per PIN group,
+and emits a combined CSV + JSON + a paginated table PDF with summary stats
+(median assessed/tax, total tax billed, % absentee-owned). CSV is the practical
+deliverable at city scale; the PDF table runs ~50 rows/page.
+
+Outputs land in `output/<name>.{json,csv,pdf}`.
 
 ### Options
 

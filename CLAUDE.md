@@ -36,9 +36,22 @@ src/county/index.ts   FIPS → adapter router
 src/merge.ts          geo + parcel → PropertyRecord (provenance + warnings)
 src/report.ts         organized sectioned HTML; src/pdf.ts renders it via Chromium
 src/output.ts         JSON + CSV emitters
-src/pull.ts           the pipeline; src/cli.ts the `pull` command
+src/pull.ts           the single-property pipeline
+src/batch.ts          whole-city pull (DuPage): keyset scan → sample or --all → full records
+src/report-table.ts   paginated table PDF + summary stats for batch output
+src/cli.ts            `pull` and `batch` commands
 test/address.test.ts  pure-parser tests
 ```
+
+## Gotchas burned in (keep them)
+
+- **HTTP cache key must hash the FULL url** (`src/http.ts`). A truncated-prefix key
+  collided on keyset queries (the `PIN > '...'` cursor sits past the cutoff) and made
+  pagination loop on page 1. Don't revert to a prefix slice.
+- **DuPage paging uses KEYSET (`PIN > last`), not `resultOffset`** — offset paging
+  overlaps/duplicates on this layer despite `supportsPagination:true`.
+- Batch `--all` fetches full attrs via keyset; the sample path uses `PIN IN (...)`
+  which caps at ~1000 ids, so it can't be used for the whole city.
 
 ## Cook gotchas (in code, keep them)
 

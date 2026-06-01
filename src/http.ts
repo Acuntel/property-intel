@@ -3,6 +3,7 @@
 // enrich_addresses.py fetch loop (pagination/backoff/cache pattern).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 const CACHE_DIR = join(process.cwd(), ".cache");
 
@@ -17,8 +18,14 @@ export const BROWSER_HEADERS: Record<string, string> = {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function cacheKey(url: string): string {
-  // filesystem-safe hash-ish key
-  return url.replace(/[^a-z0-9]+/gi, "_").slice(0, 180) + ".json";
+  // Hash the FULL url — a truncated prefix collides when the distinguishing
+  // part (e.g. a keyset `PIN > '...'` cursor) sits past the cutoff.
+  const hash = createHash("sha1").update(url).digest("hex").slice(0, 24);
+  const hint = url
+    .replace(/^https?:\/\//, "")
+    .replace(/[^a-z0-9]+/gi, "_")
+    .slice(0, 60);
+  return `${hint}_${hash}.json`;
 }
 
 export interface FetchOpts {
