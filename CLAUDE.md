@@ -2,50 +2,60 @@
 
 ## What this is
 
-A TS CLI: paste a Redfin/Zillow URL or address → pull authoritative property data
-(PIN, township, lot, taxes, owner) joined with listing data (price, beds/baths, sqft)
-→ export JSON/CSV/PDF. For Brady's realtor contacts (brokerage lookups, not mass
-scraping). Productizes the Steve Kantorov "listing intel pipeline" idea.
+A TS CLI: paste a Redfin/Zillow URL or address → look the property up in **public
+county records** and export an organized JSON/CSV/PDF report (PIN, township, legal,
+tax, valuation, owner, building characteristics, lot, districts, sale history).
+For Brady's realtor contacts (brokerage lookups). Productizes the Steve Kantorov
+"listing intel pipeline" idea.
 
 ## The non-negotiable mental model
 
-**Two sources, joined on the parcel.** County assessor = authoritative (PIN, township,
-lot, taxes, owner; free APIs). Redfin/Zillow = supplemental marketing data behind
-anti-bot walls. A blocked/missing listing must NEVER fail the pull. See `MASTER_PROMPT.md`.
+**Public-records lookup, NOT scraping.** Data comes from the US Census geocoder + the
+county assessor (DuPage ArcGIS, Cook CCAO open data) — all free, official, no key, no
+login, no rate-limit dodging. If the input is a Redfin/Zillow URL we only parse the
+address out of the slug; **we never fetch the listing site or drive a browser against
+it.** (An earlier version scraped Redfin via Playwright — that was removed on purpose;
+don't bring it back.) Playwright/Chromium is used ONLY to render the PDF locally.
+A blocked/missing field never fails the pull. See `MASTER_PROMPT.md`.
 
 ## Lineage (reused patterns)
 
-- Anti-bot + HTTP backoff/cache from `~/Desktop/distressed-scraper` (enrich_addresses.py,
-  PIN regex, Lambda IP-relay).
+- HTTP backoff/cache + PIN handling from `~/Desktop/distressed-scraper`
+  (which also uses the same DuPage/Cook public APIs).
 - TS scaffold shape (schema-driven adapters, CSV/JSON/PDF-via-Chromium, tests) from
   `~/Desktop/il-association-leads`.
-- Output schema echoes the Denis Horgan site `Listing` type.
 
 ## Files
 
 ```
 src/geocode.ts        Census geocoder → county FIPS + township
 src/address.ts        pure address parser (tested)
-src/county/dupage.ts  ArcGIS REST adapter (verified live)
-src/county/cook.ts    CCAO Socrata adapter (taxes via Treasurer = TODO)
+src/county/dupage.ts  ArcGIS REST adapter — full record, no building chars
+src/county/cook.ts    CCAO Socrata — 5 datasets joined on PIN (incl beds/baths/sqft, sales)
 src/county/index.ts   FIPS → adapter router
-src/listing/browser.ts  shared Playwright session (in-page fetch past anti-bot)
-src/listing/redfin.ts   stingray JSON API client
-src/listing/zillow.ts   __NEXT_DATA__ / Apollo extractor
-src/merge.ts          geo+parcel+listing → PropertyRecord (provenance + warnings)
-src/report.ts         print HTML; src/pdf.ts renders it via Chromium
+src/merge.ts          geo + parcel → PropertyRecord (provenance + warnings)
+src/report.ts         organized sectioned HTML; src/pdf.ts renders it via Chromium
+src/output.ts         JSON + CSV emitters
 src/pull.ts           the pipeline; src/cli.ts the `pull` command
 test/address.test.ts  pure-parser tests
 ```
+
+## Cook gotchas (in code, keep them)
+
+- Zero-pad PINs to 14 digits. Datasets are multi-year → order `year DESC`, take latest.
+- Assessed value: skip the current year if null (Board hasn't acted), take latest with a value.
+- Billed tax is NOT in open data (Treasurer) → show assessed value + warn.
 
 ## Conventions
 
 - TS strict, ESM, functional, early returns, files < 300 lines.
 - `npm test` + `npm run typecheck` green before commit.
-- `output/*` is gitignored — never commit harvested property data.
-- Keep listing pulls low-volume/human-paced; never scrape logged-in; county data is public.
+- `output/*` gitignored — never commit harvested property data.
 
-## Verified
+## Verified live
 
-DuPage ArcGIS + Census + Redfin (headless Playwright) all confirmed live on
-620 Rodenburg Rd, Roselle (PIN 0208205015, $9,550.56 tax, sold $275k 3/2.5).
+- DuPage: 620 Rodenburg Rd, Roselle → PIN 02-08-205-015, $9,550.56 tax @ 7.1689%,
+  FCV $149,222 (land 38,692 / imp 110,530), owner-occupied.
+- Cook: 5046 S Greenwood Ave, Chicago → PIN 20-11-115-037-0000, Hyde Park twp,
+  6bd/6ba, 6,243 sqft, built 1922, assessed $220k, absentee LLC owner, 1 sale on record.
+- 9 unit tests + typecheck green.

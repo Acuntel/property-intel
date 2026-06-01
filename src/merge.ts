@@ -1,66 +1,50 @@
-// Merge geo + parcel + listing into one flat PropertyRecord, stamping each
-// field group's provenance. County (assessor) data is authoritative; listing
-// data is supplemental marketing data.
-import type {
-  GeoInfo,
-  ListingInfo,
-  ParcelInfo,
-  PropertyRecord,
-} from "./types.js";
+// Merge geo + parcel into one PropertyRecord. Everything comes from public
+// records; `sources` records which dataset each group came from.
+import type { GeoInfo, ParcelInfo, PropertyRecord } from "./types.js";
+
+function defined<T extends object>(o: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(o).filter(([, v]) => v !== undefined),
+  ) as Partial<T>;
+}
 
 export function mergeRecord(args: {
   input: string;
   geo: GeoInfo;
   parcel: ParcelInfo | null;
-  listing: ListingInfo | null;
   warnings: string[];
 }): PropertyRecord {
-  const { input, geo, parcel, listing, warnings } = args;
+  const { input, geo, parcel, warnings } = args;
 
   const sources: Record<string, string> = { location: "US Census geocoder" };
   if (parcel) sources["assessor"] = parcel.source;
-  if (listing) sources["listing"] = listing.source;
 
-  const street =
-    parcel?.propertyAddress?.replace(/\s+/g, " ").trim() ||
-    geo.matchedAddress.split(",")[0]?.trim() ||
-    input;
-
-  return {
+  const base: PropertyRecord = {
     input,
-    address: street,
-    city: parcel?.city?.trim() || geo.city,
+    address: geo.matchedAddress.split(",")[0]?.trim() || input,
+    city: geo.city,
     state: geo.state,
     zip: geo.zip,
     county: geo.county,
     township: geo.township,
-    pin: parcel?.pin ?? "",
+    pin: "",
     lat: geo.lat || undefined,
     lon: geo.lon || undefined,
-    // listing (supplemental)
-    price: listing?.price,
-    beds: listing?.beds,
-    baths: listing?.baths,
-    sqft: listing?.sqft,
-    yearBuilt: listing?.yearBuilt,
-    propertyType: listing?.propertyType,
-    status: listing?.status,
-    mlsNumber: listing?.mlsNumber,
-    daysOnMarket: listing?.daysOnMarket,
-    pricePerSqft: listing?.pricePerSqft,
-    listingUrl: listing?.url,
-    // assessor (authoritative)
-    ownerName: parcel?.ownerName,
-    lotAcres: parcel?.lotAcres,
-    lotSqft: parcel?.lotSqft,
-    assessedValue: parcel?.assessedValue,
-    taxAmount: parcel?.taxAmount,
-    taxYear: parcel?.taxYear,
-    // meta
-    photos: listing?.photos ?? [],
-    description: listing?.description,
+    schoolDistricts: [],
+    sales: [],
     sources,
     warnings,
     fetchedAt: new Date().toISOString(),
   };
+
+  if (parcel) {
+    const { source: _source, township, ...fields } = parcel;
+    Object.assign(base, defined(fields));
+    // assessor township is more precise for IL than the Census MCD; prefer it.
+    if (township) base.township = township;
+    // keep Census zip if the assessor record lacks one
+    base.zip = base.zip || geo.zip;
+  }
+
+  return base;
 }

@@ -1,30 +1,26 @@
-// Core pipeline: input (address or Redfin/Zillow URL) -> PropertyRecord.
+// Core pipeline: input (address or Redfin/Zillow URL) -> PropertyRecord, built
+// entirely from PUBLIC RECORDS. If the input is a listing URL we just parse the
+// address out of it and look that address up — we never fetch the listing site.
 //
-//   1. Resolve input to a geocodable address (URL -> address heuristic, or pass through)
-//   2. Geocode (Census)          -> lat/lon, county FIPS, township, normalized address
-//   3. County adapter            -> PIN, lot, assessed value, taxes, owner   [authoritative]
-//   4. Listing adapter (opt)     -> price, beds/baths, sqft, MLS, photos     [best-effort]
-//   5. Merge with provenance + warnings
+//   1. resolve input to an address (addressFromUrl for URLs, else pass through)
+//   2. geocode (Census)   -> lat/lon, county FIPS, township, normalized address
+//   3. county adapter     -> PIN, owner, tax, valuation, building, lot, districts, sales
+//   4. merge + warnings
 import { geocode } from "./geocode.js";
 import { parseAddress } from "./address.js";
 import { lookupParcel, supportedCounties } from "./county/index.js";
-import { fetchListing } from "./listing/index.js";
 import { mergeRecord } from "./merge.js";
 import type { PropertyRecord } from "./types.js";
 
 export interface PullOpts {
-  withListing?: boolean;
-  // If the input is a URL, an explicit address improves county matching.
-  address?: string;
+  address?: string; // explicit address when the input is a URL
 }
 
-// Pull a Redfin-style listing path or URL apart into a rough street address.
-// e.g. ".../IL/Roselle/620-Rodenburg-Rd-60172/home/123" -> "620 Rodenburg Rd, Roselle, IL 60172"
+// Pull a rough street address out of a Redfin/Zillow URL slug.
 export function addressFromUrl(url: string): string | null {
   try {
     const u = new URL(url);
     const parts = u.pathname.split("/").filter(Boolean);
-    // Redfin: /<STATE>/<City>/<Street-Words-ZIP>/home/<id>
     if (u.hostname.includes("redfin.com") && parts.length >= 3) {
       const state = parts[0];
       const city = (parts[1] ?? "").replace(/-/g, " ");
@@ -36,7 +32,6 @@ export function addressFromUrl(url: string): string | null {
         .trim();
       if (street) return `${street}, ${city}, ${state} ${zip}`.trim();
     }
-    // Zillow: /homedetails/<Street-City-ST-ZIP>/<zpid>_zpid/
     if (u.hostname.includes("zillow.com")) {
       const hd = parts.indexOf("homedetails");
       const slug = hd >= 0 ? parts[hd + 1] : undefined;
@@ -58,7 +53,6 @@ export async function pull(
 ): Promise<PropertyRecord> {
   const warnings: string[] = [];
   const isUrl = /^https?:\/\//i.test(input);
-
   const addressForGeo =
     opts.address ?? (isUrl ? addressFromUrl(input) : input) ?? input;
 
@@ -69,10 +63,8 @@ export async function pull(
     );
   }
 
-  // 3. County parcel (authoritative)
-  let parcel = null;
   const parsed = parseAddress(geo.matchedAddress);
-  const { parcel: p, supported } = await lookupParcel(
+  const { parcel, supported } = await lookupParcel(
     geo.countyFips,
     parsed,
   ).catch((e) => {
@@ -81,27 +73,31 @@ export async function pull(
     );
     return { parcel: null, supported: true };
   });
-  parcel = p;
+
   if (!supported) {
     warnings.push(
-      `${geo.county} County (FIPS ${geo.countyFips}) not yet supported — ` +
-        `adapters exist for ${supportedCounties().join(", ")}. Location/township still resolved.`,
+      `${geo.county} County (FIPS ${geo.countyFips}) has no assessor adapter yet — ` +
+        `supported: ${supportedCounties().join(", ")}. Location + township still resolved from Census.`,
     );
   } else if (!parcel) {
     warnings.push(
       `No parcel match in ${geo.county} County for "${parsed.number} ${parsed.street}".`,
     );
+  } else {
+    // honest notes about what each county's public records do/don't include
+    if (parcel.source.startsWith("DuPage") && parcel.beds == null) {
+      warnings.push(
+        "DuPage public records don't publish building characteristics (beds/baths/sqft) — " +
+          "shown values are land/assessment/valuation only.",
+      );
+    }
+    if (parcel.source.startsWith("Cook") && parcel.taxAmount == null) {
+      warnings.push(
+        "Cook billed-tax dollars aren't in open data — see cookcountypropertyinfo.com for the exact bill " +
+          "(assessed value shown instead).",
+      );
+    }
   }
 
-  // 4. Listing (best-effort enrichment)
-  let listing = null;
-  if (opts.withListing) {
-    const { listing: l, warning } = await fetchListing(
-      isUrl ? input : addressForGeo,
-    );
-    listing = l;
-    if (warning) warnings.push(warning);
-  }
-
-  return mergeRecord({ input, geo, parcel, listing, warnings });
+  return mergeRecord({ input, geo, parcel, warnings });
 }

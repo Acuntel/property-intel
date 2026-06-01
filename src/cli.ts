@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-// property-intel CLI
+// property-intel CLI — public-records property lookup.
 //   pull <address|redfin-url|zillow-url> [options]
 //
 // Options:
-//   --listing            enrich with Redfin/Zillow listing data (best-effort)
 //   --address "<addr>"   explicit address when the input is a URL
 //   --out <basename>     output basename (default: derived from address)
 //   --json|--csv|--pdf   choose formats (default: all three)
-//   --print              also print the record to stdout
+//   --print              also print the JSON record to stdout
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { pull } from "./pull.js";
@@ -31,24 +30,22 @@ function slug(r: PropertyRecord): string {
   );
 }
 
+const dollars = (n?: number) => (n != null ? `$${n.toLocaleString()}` : "—");
+
 async function main(): Promise<void> {
   const cmd = process.argv[2];
   const input = process.argv[3];
   if (cmd !== "pull" || !input || input.startsWith("--")) {
     process.stderr.write(
-      'Usage: property-intel pull "<address|redfin-url|zillow-url>" [--listing] [--address "..."] [--out name] [--json] [--csv] [--pdf] [--print]\n',
+      'Usage: property-intel pull "<address|redfin-url|zillow-url>" [--address "..."] [--out name] [--json] [--csv] [--pdf] [--print]\n',
     );
     process.exitCode = 1;
     return;
   }
 
-  process.stdout.write(`→ Pulling ${input}\n`);
-  const record = await pull(input, {
-    withListing: has("listing"),
-    address: flag("address"),
-  });
+  process.stdout.write(`→ Looking up ${input}\n`);
+  const record = await pull(input, { address: flag("address") });
 
-  // default: emit all formats unless a specific one is requested
   const anySpecific = has("json") || has("csv") || has("pdf");
   const doJson = !anySpecific || has("json");
   const doCsv = !anySpecific || has("csv");
@@ -75,20 +72,24 @@ async function main(): Promise<void> {
     written.push(p);
   }
 
+  const r = record;
+  const lastSale = r.sales[0];
   process.stdout.write(
-    `\n${record.address}, ${record.city} ${record.state}\n` +
-      `  County/Township : ${record.county} / ${record.township}\n` +
-      `  PIN             : ${record.pin || "—"}\n` +
-      `  Owner           : ${record.ownerName ?? "—"}\n` +
-      `  Lot             : ${record.lotSqft ? `${record.lotSqft.toLocaleString()} sqft` : "—"}\n` +
-      `  Assessed value  : ${record.assessedValue != null ? `$${record.assessedValue.toLocaleString()}` : "—"}\n` +
-      `  Property tax    : ${record.taxAmount != null ? `$${record.taxAmount.toLocaleString()}` : "—"}\n` +
-      `  Beds/Baths/Sqft : ${record.beds ?? "—"} / ${record.baths ?? "—"} / ${record.sqft ?? "—"}\n` +
-      `  List price      : ${record.price != null ? `$${record.price.toLocaleString()}` : "—"}\n`,
+    `\n${r.address}, ${r.city} ${r.state} ${r.zip}\n` +
+      `  County/Township : ${r.county} / ${r.township}\n` +
+      `  PIN             : ${r.pin || "—"}\n` +
+      `  Owner           : ${r.ownerName ?? "—"}${r.absenteeOwner ? "  (absentee)" : ""}\n` +
+      `  Class / Year    : ${r.propertyClass ?? "—"} / ${r.yearBuilt ?? "—"}\n` +
+      `  Beds/Baths/Sqft : ${r.beds ?? "—"} / ${r.fullBaths ?? "—"}${r.halfBaths ? `+${r.halfBaths}h` : ""} / ${r.buildingSqft ?? "—"}\n` +
+      `  Lot             : ${r.lotSqft ? `${r.lotSqft.toLocaleString()} sqft` : "—"}\n` +
+      `  Assessed value  : ${dollars(r.assessedValue)}\n` +
+      `  Property tax    : ${dollars(r.taxAmount)}${r.taxRate ? ` @ ${r.taxRate}%` : ""}\n` +
+      `  Last sale       : ${lastSale ? `${lastSale.date ?? "?"} — ${dollars(lastSale.price)}` : "—"}\n` +
+      `  Sales on record : ${r.sales.length}\n`,
   );
-  if (record.warnings.length) {
+  if (r.warnings.length) {
     process.stdout.write(
-      `  Warnings:\n${record.warnings.map((w) => `    ⚠ ${w}`).join("\n")}\n`,
+      `  Notes:\n${r.warnings.map((w) => `    ⚠ ${w}`).join("\n")}\n`,
     );
   }
   if (has("print")) process.stdout.write(`\n${recordsToJson([record])}`);

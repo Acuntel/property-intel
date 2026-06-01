@@ -1,33 +1,36 @@
 # property-intel
 
-Paste a **Redfin/Zillow URL or a street address** → pull all the property-specific
-data a realtor actually wants (PIN/parcel, township, lot, sqft, beds/baths, taxes,
-assessed value, owner, list price) and export it as **JSON, CSV, and a print-ready PDF**.
+Paste a **Redfin/Zillow URL or a street address** → get all the property-specific data
+a realtor actually wants (PIN/parcel, township, legal description, lot, sqft,
+beds/baths, year built, taxes, assessed value, owner, **sale history**) and export it
+as **JSON, CSV, and an organized print-ready PDF**.
 
-Built for brokerage use: _"pull the whole listing and all the data for me."_
+Built for brokerage lookups: _"pull the whole record for me."_
 
-It joins two sources — the **county assessor** (authoritative for PIN, township, lot,
-taxes, owner; free) and **Redfin/Zillow** (supplemental for price, beds/baths, sqft,
-MLS). See [`MASTER_PROMPT.md`](./MASTER_PROMPT.md) for the architecture.
+**It's a public-records lookup, not a scraper.** The data comes from free official
+county sources — the US Census geocoder + the county assessor (DuPage ArcGIS, Cook
+County CCAO open data). If you paste a Redfin/Zillow link, it just reads the address
+out of the URL and looks that up; it never fetches the listing site. See
+[`MASTER_PROMPT.md`](./MASTER_PROMPT.md) for the architecture.
 
 ## Setup
 
 ```bash
 npm install
-npm run setup:browser   # one-time: Playwright Chromium (skips if already cached)
+npm run setup:browser   # one-time: Chromium for PDF rendering (skips if cached)
 ```
 
 ## Usage
 
 ```bash
-# County data only (fast, always works for supported counties)
+# DuPage
 npm run pull -- "620 Rodenburg Rd, Roselle, IL 60172"
 
-# + listing enrichment from Redfin/Zillow (best-effort, uses a headless browser)
-npm run pull -- "https://www.redfin.com/IL/Roselle/620-Rodenburg-Rd-60172/home/16895259" --listing
+# Cook (returns beds/baths/sqft/year + sale history)
+npm run pull -- "5046 S Greenwood Ave, Chicago, IL 60615"
 
-# address + URL together (best matching when you have both)
-npm run pull -- "https://www.zillow.com/homedetails/.../12345_zpid/" --listing --address "620 Rodenburg Rd, Roselle, IL"
+# from a listing URL (address is read from the URL slug — the site is never fetched)
+npm run pull -- "https://www.redfin.com/IL/Roselle/620-Rodenburg-Rd-60172/home/16895259"
 ```
 
 Outputs land in `output/<address>.{json,csv,pdf}`.
@@ -36,33 +39,28 @@ Outputs land in `output/<address>.{json,csv,pdf}`.
 
 | Flag                         | Effect                                                           |
 | ---------------------------- | ---------------------------------------------------------------- |
-| `--listing`                  | Enrich with Redfin/Zillow listing data (launches a browser)      |
 | `--address "<addr>"`         | Explicit address when the input is a URL (improves county match) |
 | `--out <name>`               | Output basename (default: derived from the address)              |
 | `--json` / `--csv` / `--pdf` | Emit only the chosen format(s) (default: all three)              |
 | `--print`                    | Also print the JSON record to stdout                             |
 
-### Env
-
-| Var                       | Default | Effect                                                                         |
-| ------------------------- | ------- | ------------------------------------------------------------------------------ |
-| `PROPERTY_INTEL_HEADLESS` | `true`  | `false` → visible real-browser session (more anti-bot resilient)               |
-| `PROPERTY_INTEL_CHROME`   | `false` | `true` → use installed Chrome (`channel:"chrome"`) instead of bundled Chromium |
-
 ## Coverage
 
-- **Counties (authoritative):** DuPage (live), Cook (CCAO open data). Other Chicago
-  collar counties run the same Esri ArcGIS stack — add an adapter + FIPS in
-  `src/county/`. Location + township resolve nationwide via Census even for
-  unsupported counties.
-- **Listing:** Redfin (URL or address), Zillow (URL). Best-effort behind anti-bot;
-  a blocked listing never fails the pull.
+| County             | PIN/owner/tax                           | Valuation         | Beds/baths/sqft      | Sale history |
+| ------------------ | --------------------------------------- | ----------------- | -------------------- | ------------ |
+| **DuPage** (17043) | ✅                                      | ✅ land/imp/total | ❌ not in public GIS | ❌           |
+| **Cook** (17031)   | ✅ (assessed; billed tax via Treasurer) | ✅ assessed       | ✅                   | ✅           |
+
+Other Chicago collar counties run the same Esri ArcGIS stack as DuPage — add an
+adapter + FIPS in `src/county/`. Unsupported counties still resolve location + township
+from Census. The PDF only shows fields that records actually return — no blank filler.
 
 ## Notes
 
-Redfin/Zillow Terms prohibit automated extraction — keep volume low and human-paced,
-don't scrape while logged in, and use the data internally rather than republishing it.
-The county assessor data is public and the system of record. Not legal advice.
+All sources are public and free. We don't scrape Redfin/Zillow or hit any login-gated
+or rate-limited endpoint — this is the official system-of-record data. Cook billed-tax
+dollars aren't in open data; the tool shows assessed value and points to
+cookcountypropertyinfo.com for the exact bill.
 
 ## Dev
 

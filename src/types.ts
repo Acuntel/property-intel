@@ -1,8 +1,8 @@
-// Shared types for the property-intel pipeline.
-// A PropertyRecord is the merged output of three sources:
-//   geo      (Census geocoder)         -> normalized address, county, township, lat/lon
-//   parcel   (county assessor)         -> PIN, lot, assessed value, taxes, owner  [AUTHORITATIVE]
-//   listing  (Redfin/Zillow)           -> price, beds/baths, sqft, photos, MLS    [best-effort]
+// Shared types. A PropertyRecord is assembled purely from PUBLIC RECORDS:
+//   geo    (US Census geocoder)  -> normalized address, county FIPS, township, lat/lon
+//   parcel (county assessor)     -> everything else: PIN, owner, tax, valuation,
+//                                   building characteristics, lot, districts, sales
+// No listing-site scraping — we look the address up in public data and take what's there.
 
 export interface GeoInfo {
   matchedAddress: string;
@@ -10,79 +10,126 @@ export interface GeoInfo {
   lon: number;
   county: string; // "DuPage"
   countyFips: string; // "17043"
-  township: string; // "Bloomingdale"
+  township: string; // "Bloomingdale" (Census civil township)
   city: string;
   state: string;
   zip: string;
 }
 
+export interface SaleRecord {
+  date?: string; // YYYY-MM-DD
+  price?: number;
+  deedType?: string;
+  seller?: string;
+  buyer?: string;
+  docNo?: string;
+}
+
+// Everything an assessor adapter can return. All optional except identity.
+// Field names match PropertyRecord so merge can spread cleanly.
 export interface ParcelInfo {
+  source: string; // "DuPage County ArcGIS" | "Cook County CCAO (open data)"
   pin: string;
-  ownerName?: string;
-  propertyAddress?: string;
+  // identity
+  address?: string;
   city?: string;
-  lotAcres?: number;
-  lotSqft?: number;
+  zip?: string;
+  municipality?: string;
+  township?: string; // assessor township (overrides Census when present)
+  legalDescription?: string;
+  propertyClass?: string;
+  // owner
+  ownerName?: string;
+  mailingAddress?: string;
+  absenteeOwner?: boolean;
+  // assessment & tax
   assessedValue?: number;
+  fcvLand?: number;
+  fcvImprovement?: number;
+  fcvTotal?: number;
+  taxRate?: number;
   taxAmount?: number;
   taxYear?: number;
-  source: string; // "DuPage County ArcGIS" | "Cook County CCAO (Socrata)"
-}
-
-export interface ListingInfo {
-  price?: number;
-  beds?: number;
-  baths?: number;
-  sqft?: number;
+  exemptions?: string;
+  // building characteristics
   yearBuilt?: number;
+  buildingSqft?: number;
+  beds?: number;
+  fullBaths?: number;
+  halfBaths?: number;
+  rooms?: number;
+  exteriorWall?: string;
+  airConditioning?: string;
+  basement?: string;
+  garage?: string;
   propertyType?: string;
-  status?: string;
-  mlsNumber?: string;
-  description?: string;
-  daysOnMarket?: number;
-  pricePerSqft?: number;
-  photos?: string[];
-  url?: string;
-  source: string; // "Redfin" | "Zillow"
+  // lot
+  lotAcres?: number;
+  lotSqft?: number;
+  // districts
+  schoolDistricts?: string[];
+  parkDistrict?: string;
+  libraryDistrict?: string;
+  fireDistrict?: string;
+  communityCollege?: string;
+  floodZone?: string;
+  // sales history
+  sales?: SaleRecord[];
 }
 
-// Flat, mailer/CSV-friendly merged record. Field groups carry a provenance tag
-// in `sources` so a realtor knows which numbers are authoritative (county) vs.
-// scraped marketing data (listing).
 export interface PropertyRecord {
   input: string;
-  // identity / location
+  // identity
   address: string;
   city: string;
   state: string;
   zip: string;
   county: string;
   township: string;
+  municipality?: string;
   pin: string;
+  legalDescription?: string;
+  propertyClass?: string;
   lat?: number;
   lon?: number;
-  // listing (best-effort)
-  price?: number;
-  beds?: number;
-  baths?: number;
-  sqft?: number;
-  yearBuilt?: number;
-  propertyType?: string;
-  status?: string;
-  mlsNumber?: string;
-  daysOnMarket?: number;
-  pricePerSqft?: number;
-  listingUrl?: string;
-  // assessor (authoritative)
+  // owner
   ownerName?: string;
-  lotAcres?: number;
-  lotSqft?: number;
+  mailingAddress?: string;
+  absenteeOwner?: boolean;
+  // assessment & tax
   assessedValue?: number;
+  fcvLand?: number;
+  fcvImprovement?: number;
+  fcvTotal?: number;
+  taxRate?: number;
   taxAmount?: number;
   taxYear?: number;
+  exemptions?: string;
+  // building
+  yearBuilt?: number;
+  buildingSqft?: number;
+  beds?: number;
+  fullBaths?: number;
+  halfBaths?: number;
+  rooms?: number;
+  exteriorWall?: string;
+  airConditioning?: string;
+  basement?: string;
+  garage?: string;
+  propertyType?: string;
+  // lot
+  lotAcres?: number;
+  lotSqft?: number;
+  // districts
+  schoolDistricts: string[];
+  parkDistrict?: string;
+  libraryDistrict?: string;
+  fireDistrict?: string;
+  communityCollege?: string;
+  floodZone?: string;
+  // sales
+  sales: SaleRecord[];
   // meta
-  photos: string[];
-  description?: string;
   sources: Record<string, string>;
   warnings: string[];
   fetchedAt: string;
@@ -90,8 +137,8 @@ export interface PropertyRecord {
 
 export interface ParsedAddress {
   number: string;
-  street: string; // street name without unit, e.g. "RODENBURG RD"
-  streetBase: string; // first significant word(s) w/o suffix, for fuzzy LIKE, e.g. "RODENBURG"
+  street: string;
+  streetBase: string;
   city: string;
   state: string;
   zip: string;
