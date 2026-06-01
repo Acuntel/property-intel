@@ -39,9 +39,30 @@ src/output.ts         JSON + CSV emitters
 src/pull.ts           the single-property pipeline
 src/batch.ts          whole-city pull (DuPage): keyset scan → sample or --all → full records
 src/report-table.ts   paginated table PDF + summary stats for batch output
-src/cli.ts            `pull` and `batch` commands
+src/listing/redfin-search.ts  active for-sale inventory via one Redfin region request
+src/forsale.ts        for-sale pull: listings joined to county records by address
+src/cli.ts            `pull`, `batch`, and `forsale` commands
 test/address.test.ts  pure-parser tests
 ```
+
+## For-sale flow (the one scrape we do)
+
+`forsale <city>` is the ONLY place we touch a listing site, and it's ONE region
+request (not per-property scraping): Redfin's map JSON endpoint returns the whole
+active inventory with beds/baths/sqft/price. Redfin (not Zillow — Zillow is
+PerimeterX captcha-walled) loaded via a real page navigation so the in-page fetch
+carries the clearance cookie. Each listing is then joined to its county record by
+address. This is how DuPage gets beds/baths/sqft (its assessor doesn't publish them).
+Redfin's CSV download is gutted by MRED rules → use the `/stingray/api/gis` JSON.
+
+## DuPage street-match gotcha (fixed — keep it)
+
+DuPage `PROPSTNAME` includes the directional ("675 S EDGEWOOD AVE") but the
+Census-normalized input drops it ("675 EDGEWOOD AVE"). Match with
+`PROPSTNAME LIKE '<number> %<streetBase>%'` — the trailing space after the number
+anchors the house number, the `%` swallows the optional directional. A plain
+`'<number> <streetBase>%'` silently misses every directional address (was ~58% of
+Elmhurst for-sale joins).
 
 ## Gotchas burned in (keep them)
 

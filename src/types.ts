@@ -120,6 +120,14 @@ export interface PropertyRecord {
   // lot
   lotAcres?: number;
   lotSqft?: number;
+  // active listing (only present for for-sale pulls; from Redfin search)
+  forSale?: boolean;
+  listPrice?: number;
+  listingStatus?: string;
+  mlsNumber?: string;
+  daysOnMarket?: number;
+  pricePerSqft?: number;
+  listingUrl?: string;
   // districts
   schoolDistricts: string[];
   parkDistrict?: string;

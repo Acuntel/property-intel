@@ -43,11 +43,23 @@ export function reportTableToHtml(
     .filter((n): n is number => n != null);
   const absentee = records.filter((r) => r.absenteeOwner).length;
   const totalTax = taxes.reduce((s, n) => s + n, 0);
+  const forSale = records.some((r) => r.forSale);
+  const listPrices = records
+    .map((r) => r.listPrice)
+    .filter((n): n is number => n != null);
 
   const stats = [
     ["Properties", String(records.length)],
+    ...(forSale
+      ? ([["Median list price", usd0(median(listPrices))]] as [
+          string,
+          string,
+        ][])
+      : []),
     ["Median assessed", usd0(median(assessed))],
-    ["Median fair-cash", usd0(median(fcv))],
+    ...(forSale
+      ? []
+      : ([["Median fair-cash", usd0(median(fcv))]] as [string, string][])),
     ["Median tax", usd0(median(taxes))],
     ["Total tax billed", usd0(totalTax)],
     [
@@ -78,8 +90,8 @@ export function reportTableToHtml(
         <td>${esc(r.ownerName ?? "—")}${r.absenteeOwner ? ' <span class="abs">abs</span>' : ""}</td>
         <td class="r">${r.lotSqft ? r.lotSqft.toLocaleString() : "—"}</td>
         <td class="c">${esc(bbs)}</td>
+        ${forSale ? `<td class="r b">${usd0(r.listPrice)}</td>` : `<td class="r">${usd0(r.fcvTotal)}</td>`}
         <td class="r">${usd0(r.assessedValue)}</td>
-        <td class="r">${usd0(r.fcvTotal)}</td>
         <td class="r">${usd0(r.taxAmount)}</td>
       </tr>`;
     })
@@ -105,6 +117,7 @@ export function reportTableToHtml(
     td.r, th.r { text-align: right; } td.c, th.c { text-align: center; }
     td.i { color: #9aa6b3; } td.mono { font-family: "SF Mono", Menlo, monospace; font-size: 9px; }
     .z { color: #9aa6b3; } .abs { background: #fff0e6; color: #b4631c; padding: 0 4px; border-radius: 3px; font-size: 8px; }
+    td.b { font-weight: 700; }
     footer { margin-top: 14px; font-size: 9px; color: #9aa6b3; display: flex; justify-content: space-between; }
   </style></head><body>
     <div class="brand">PROPERTY INTEL</div>
@@ -115,10 +128,10 @@ export function reportTableToHtml(
       <thead><tr>
         <th class="i">#</th><th>Address</th><th>PIN</th><th>Owner</th>
         <th class="r">Lot sqft</th><th class="c">Bd / Ba / Sqft</th>
-        <th class="r">Assessed</th><th class="r">Fair-cash</th><th class="r">Tax</th>
+        <th class="r">${forSale ? "List $" : "Fair-cash"}</th><th class="r">Assessed</th><th class="r">Tax</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <footer><span>Source: DuPage County / Cook County CCAO public records</span><span>${esc(records[0]?.fetchedAt ?? "")}</span></footer>
+    <footer><span>Source: ${forSale ? "Redfin (active listings) + " : ""}DuPage / Cook County CCAO public records</span><span>${esc(records[0]?.fetchedAt ?? "")}</span></footer>
   </body></html>`;
 }

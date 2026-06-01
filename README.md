@@ -48,6 +48,20 @@ and emits a combined CSV + JSON + a paginated table PDF with summary stats
 (median assessed/tax, total tax billed, % absentee-owned). CSV is the practical
 deliverable at city scale; the PDF table runs ~50 rows/page.
 
+### Homes currently for sale (Redfin + county)
+
+```bash
+npm run pull -- forsale "Elmhurst" --count 50     # 50 active listings
+npm run pull -- forsale "Elmhurst"                # all active listings
+```
+
+`forsale` pulls a city's **active listings** from Redfin in one region request
+(address + beds/baths/sqft/year/list price) and joins each to its county assessor
+record (PIN/owner/lot/assessed/tax). This is the only flow that fills beds/baths/sqft
+for DuPage. Redfin is used because Zillow is captcha-walled; both carry the same MLS
+data. New cities need their Redfin region id — add it to `REDFIN_REGIONS` in
+`src/listing/redfin-search.ts` or pass `--region <id> --market <market>`.
+
 Outputs land in `output/<name>.{json,csv,pdf}`.
 
 ### Options

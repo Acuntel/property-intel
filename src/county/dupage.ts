@@ -85,14 +85,13 @@ export async function queryDuPageAll(
 export async function lookupDuPage(
   addr: ParsedAddress,
 ): Promise<ParcelInfo | null> {
-  const namePrefix = [addr.number, addr.streetBase]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
-  if (!namePrefix) return null;
+  if (!addr.number || !addr.streetBase) return null;
 
+  // Match "<number> %<streetBase>%": the `<number> ` (trailing space) anchors the
+  // house number exactly, the `%` swallows an optional directional (DuPage stores
+  // "675 S EDGEWOOD AVE" while the Census-normalized input is "675 EDGEWOOD AVE").
   const where =
-    `PROPSTNAME LIKE '${sqlEscape(namePrefix)}%'` +
+    `PROPSTNAME LIKE '${sqlEscape(addr.number)} %${sqlEscape(addr.streetBase)}%'` +
     (addr.city ? ` AND PROPCITY LIKE '${sqlEscape(addr.city)}%'` : "");
 
   const feats = await queryDuPage(where, { limit: 10 });

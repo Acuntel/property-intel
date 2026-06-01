@@ -10,6 +10,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { pull } from "./pull.js";
 import { batchDuPageCity } from "./batch.js";
+import { forSaleCity } from "./forsale.js";
 import { recordsToCsv, recordsToJson } from "./output.js";
 import { writePdf, renderHtmlToPdf } from "./pdf.js";
 import { reportTableToHtml } from "./report-table.js";
@@ -130,15 +131,65 @@ async function runBatch(city: string): Promise<void> {
   );
 }
 
+async function runForSale(city: string): Promise<void> {
+  const count = has("all")
+    ? Infinity
+    : flag("count")
+      ? Number(flag("count"))
+      : Infinity;
+  process.stdout.write(
+    `→ For-sale: active listings in ${city} (Redfin) → joined to county records\n`,
+  );
+  const records = await forSaleCity(
+    city,
+    {
+      count,
+      regionId: flag("region") ? Number(flag("region")) : undefined,
+      market: flag("market"),
+    },
+    (m) => process.stdout.write(`  ${m}\n`),
+  );
+  if (!records.length) {
+    process.stderr.write(`No active listings found for "${city}".\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const title = `${city} — Homes For Sale`;
+  const subtitle = `${records.length} active listings · Redfin + ${records[0]?.county ?? "county"} County assessor records`;
+  const html = reportTableToHtml(records, { title, subtitle });
+  const written = await writeOutputs(
+    records,
+    flag("out") ?? `${slugify(city)}-forsale`,
+    html,
+  );
+
+  const prices = records
+    .map((r) => r.listPrice)
+    .filter((n): n is number => n != null)
+    .sort((a, b) => a - b);
+  const med = prices.length ? prices[Math.floor(prices.length / 2)] : undefined;
+  const joined = records.filter((r) => r.pin).length;
+  process.stdout.write(
+    `\n${records.length} active for-sale listings in ${city}\n` +
+      `  Median list price : ${dollars(med)}\n` +
+      `  Joined to county  : ${joined}/${records.length} (PIN + tax + owner)\n` +
+      `  Beds/baths/sqft   : from Redfin listing\n` +
+      `\nWrote:\n${written.map((w) => `  ${w}`).join("\n")}\n`,
+  );
+}
+
 async function main(): Promise<void> {
   const cmd = process.argv[2];
   const arg = process.argv[3];
   if (cmd === "pull" && arg && !arg.startsWith("--")) return runPull(arg);
   if (cmd === "batch" && arg && !arg.startsWith("--")) return runBatch(arg);
+  if (cmd === "forsale" && arg && !arg.startsWith("--")) return runForSale(arg);
   process.stderr.write(
     "Usage:\n" +
       '  property-intel pull "<address|redfin-url|zillow-url>" [--address "..."] [--out name] [--json|--csv|--pdf] [--print]\n' +
-      '  property-intel batch "<city>" [--count 100 | --all] [--out name] [--json|--csv|--pdf]\n',
+      '  property-intel batch "<city>" [--count 100 | --all] [--out name] [--json|--csv|--pdf]\n' +
+      '  property-intel forsale "<city>" [--count N] [--region <id> --market <m>] [--out name] [--json|--csv|--pdf]\n',
   );
   process.exitCode = 1;
 }
